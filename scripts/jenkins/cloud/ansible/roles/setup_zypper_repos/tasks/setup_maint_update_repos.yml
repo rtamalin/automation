@@ -71,7 +71,8 @@
     name: "{{ item.1 }}-Maint-Update-{{ item.0 }}"
     repo: "{{ local_repos_base_dir }}/{{ item.0 }}/{{ maintenance_updates_path[item.1] }}/"
     runrefresh: yes
-    state: present
+    enabled: "{{ zypper_repo_enabled }}"
+    state: "{{ zypper_repo_state }}"
   when: "maintenance_updates_path[item.1] in mu_url.results | selectattr('item', 'equalto', item.0) | map(attribute='content') | join(' ')"
   loop: "{{ maint_updates_list | product(maintenance_updates_path) | list }}"
   notify:

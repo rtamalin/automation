@@ -15,9 +15,23 @@
 #
 ---
 
+# Default settings for zypper repo management
+zypper_repo_enabled: yes
+zypper_repo_state: present
+zypper_nfs_repo_state: mounted
+
+setup_cloudsource: "{{ target_cloudsource | default(cloudsource) }}"
+setup_cloud_release: "{{ target_cloud_release | default(cloud_release) }}"
+setup_distribution_version: "{{ target_distribution_version | default(ansible_distribution_version) }}"
+setup_distro_major_version: "{{ setup_distribution_version.split('.')[0] }}"
+setup_distro_release: "{{ setup_distribution_version.split('.')[1] }}"
+setup_suse_release: "suse-{{ setup_distribution_version }}"
+
+local_repos_base_dir: "/srv/{{ local_repos_web_dir_prefix }}/{{ setup_suse_release }}/{{ ansible_architecture }}/repos"
+
 clouddata_server: "provo-clouddata.cloud.suse.de"
 repos_url: "http://{{ clouddata_server }}/repos/{{ ansible_architecture }}"
-is_milestone: "{{ cloudsource is match('cloud\\d(M\\d|RC\\d|GMC)') }}"
+is_milestone: "{{ setup_cloudsource is match('cloud\\d(M\\d|RC\\d|GMC)') }}"
 built_from: "{{ repos_url}}/{{ base_repos.0 }}"
 media_build_version: "{{ cloud_media_build_version.content | b64decode }}"
 include_maint_update: "{{ (task == 'deploy' and not update_after_deploy) or (task == 'update') }}"
@@ -36,7 +50,7 @@ cloudsource_repos:
   develcloud9: "SUSE-OpenStack-Cloud-9-devel"
   GM9: "SUSE-OpenStack-Cloud-9-Pool"
 
-cloud_brand: "{{ cloudsource.startswith('hos') | ternary('HPE-Helion-OpenStack', 'SUSE-OpenStack-Cloud') }}"
+cloud_brand: "{{ setup_cloudsource.startswith('hos') | ternary('HPE-Helion-OpenStack', 'SUSE-OpenStack-Cloud') }}"
 
 repository_mnemonics:
   cloud7:
@@ -59,26 +73,29 @@ repository_mnemonics:
     Cloud-Updates-test: "SUSE-OpenStack-Cloud-9-Updates-test"
 
 base_repos:
-  - "{{ cloudsource_repos[cloudsource | replace('+up', '')] }}"
-  - "{{ repository_mnemonics[cloud_release]['SLES-Pool'] }}"
-  - "{{ repository_mnemonics[cloud_release]['SLES-Updates'] }}"
+  - "{{ cloudsource_repos[setup_cloudsource | replace('+up', '')] }}"
+  - "{{ repository_mnemonics[setup_cloud_release]['SLES-Pool'] }}"
+  - "{{ repository_mnemonics[setup_cloud_release]['SLES-Updates'] }}"
 cloud_update_repos:
-  - "{{ repository_mnemonics[cloud_release]['Cloud-Updates'] }}"
+  - "{{ repository_mnemonics[setup_cloud_release]['Cloud-Updates'] }}"
 sles_test_repos:
-  - "{{ repository_mnemonics[cloud_release]['SLES-Updates-test'] }}"
+  - "{{ repository_mnemonics[setup_cloud_release]['SLES-Updates-test'] }}"
 cloud_test_repos:
-  - "{{ repository_mnemonics[cloud_release]['Cloud-Updates-test'] }}"
+  - "{{ repository_mnemonics[setup_cloud_release]['Cloud-Updates-test'] }}"
 
-cloud_update_repos_enabled: "{{ '+up' in cloudsource }}"
-sles_test_repos_enabled: "{{ updates_test_enabled and ((task == 'deploy' and not (update_after_deploy and 'GM' in cloudsource)) or (task == 'update')) }}"
-cloud_test_repos_enabled: "{{ updates_test_enabled and 'GM' in cloudsource and ((task == 'deploy' and not update_after_deploy) or (task == 'update')) }}"
+cloud_update_repos_enabled: "{{ '+up' in setup_cloudsource }}"
+sles_test_repos_enabled: "{{ updates_test_enabled and ((task == 'deploy' and not (update_after_deploy and 'GM' in setup_cloudsource)) or (task == 'update') or (task == 'upgrade')) }}"
+cloud_test_repos_enabled: "{{ updates_test_enabled and 'GM' in setup_cloudsource and ((task == 'deploy' and not update_after_deploy) or (task == 'update') or (task == 'upgrade')) }}"
 
 repos_to_mount: "{{ repos_to_add | select('search', '.*-Pool$') | list }}"
 repos_to_sync: "{{ repos_to_add | difference(repos_to_mount) }}"
 
 extra_repos_list: "{{ extra_repos.split(',') if extra_repos is defined and extra_repos | length > 0 else [] }}"
-cloudsource_repo: "{{ (task == 'update' and cloudsource is defined and cloudsource != '') | ternary('Updates', 'Pool') }}"
+# For upgrade, we still want to use Pool, not Updates for the repo name
+cloudsource_repo: "{{ (task == 'update' and setup_cloudsource is defined and setup_cloudsource != '') | ternary('Updates', 'Pool') }}"
 zypper_repo_name: "{{ item | regex_replace('devel.*', cloudsource_repo) }}"
+zypper_pool_tag: "{{ item | regex_replace('-devel.*$', '') | lower }}"
+zypper_updates_tag: "{{ item | regex_replace('-devel.*$', '') | regex_replace('^SUSE-', '') }}"
 
 #media_versions
 ardana_media_version_src_file: "{{ local_repos_base_dir }}/{{ base_repos.0 | regex_replace('devel.*', 'Pool') }}/media.1/build"

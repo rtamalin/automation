@@ -19,20 +19,19 @@ set -e
 source lib.sh
 
 validate_input
-setup_ansible_venv
-mitogen_enable
-prepare_input_model
-prepare_infra
+#setup_ansible_venv
+#mitogen_enable
+#prepare_input_model
+#prepare_infra
 
 trap exit_msg EXIT
 
-build_test_packages
+#build_test_packages
 build_upgrade_test_packages
-bootstrap_clm
-deploy_ses_vcloud
-bootstrap_nodes
-deploy_cloud
-update_cloud
+#bootstrap_clm
+#deploy_ses_vcloud
+#bootstrap_nodes
+#deploy_cloud
 upgrade_cloud
 run_tempest
 run_qa_tests

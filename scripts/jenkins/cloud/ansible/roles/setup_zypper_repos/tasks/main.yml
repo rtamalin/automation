@@ -15,12 +15,16 @@
 #
 ---
 
+- debug: var=cloudsource
+- debug: var=target_cloudsource
+- debug: var=setup_cloudsource
+
 - name: Gather variables when milestone cloudsousrce
   include_vars: "milestone.yml"
   when: is_milestone
 
 - include_tasks: setup_sles_cloud_repos.yml
-  when: cloudsource != '' and cloud_product == 'ardana'
+  when: setup_cloudsource != '' and cloud_product == 'ardana'
 
 - include_tasks: setup_repo_from_iso.yml
   when: is_milestone and cloud_product == 'ardana'

@@ -27,6 +27,7 @@ prepare_infra
 trap exit_msg EXIT
 
 build_test_packages
+build_upgrade_test_packages
 bootstrap_clm
 deploy_ses_vcloud
 bootstrap_nodes

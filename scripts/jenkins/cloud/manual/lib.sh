@@ -21,9 +21,46 @@ ARDANA_INPUT=${ARDANA_INPUT:-"$WORK_DIR/input.yml"}
 MITOGEN_URL=${MITOGEN_URL:-"https://github.com/dw/mitogen/archive/master.tar.gz"}
 ANSIBLE_CFG_ARDANA=${ANSIBLE_CFG_ARDANA:-"$AUTOMATION_DIR/scripts/jenkins/cloud/ansible/ansible.cfg"}
 ANSIBLE_CFG_SES=${ANSIBLE_CFG_SES:-"$AUTOMATION_DIR/scripts/jenkins/ses/ansible/ansible.cfg"}
+python_bin=
+
+# determine python command to use, preferring compatible python3 over python2
+function determine_python_bin {
+    [[ -n "${python_bin}" ]] && return
+
+    local pycmd pybin pyver pyminver
+
+    for pycmd in python3 python
+    do
+        pybin=$(command -v ${pycmd}) || continue
+
+        # check if it is a compatible python version - Ansible needs Python >=3.5, or >=2.6
+        pyver=$(${pybin} --version 2>&1 | awk '{print $2}')
+        case "${pyver}" in
+            2.* )
+                pyminver=2.6
+                ;;
+            3.* )
+                pyminver=3.5
+                ;;
+            * )
+                continue
+                ;;
+        esac
+
+        if [[ "$(printf '%s\n' ${pyminver} ${pyver} | sort --version-sort | tail -1)" == "${pyver}" ]]; then
+            python_bin=${pybin}
+            break
+        fi
+    done
+
+    if [[ -z "${python_bin}" ]]; then
+        echo "ERROR: No compatible python version detected"
+        exit 1
+    fi
+}
 
 function get_from_input {
-    echo $(grep -v "^#" $ARDANA_INPUT | awk -v var=$1 '$0 ~ var{ print $2 }' | tr -d "'")
+    echo $(grep -v "^#" $ARDANA_INPUT | awk -v var="^$1" '$0 ~ var{ print $2 }' | tr -d "'")
 }
 
 function is_defined {
@@ -37,8 +74,9 @@ function is_defined {
 
 function setup_ansible_venv {
     if [ ! -d "$ANSIBLE_VENV" ]; then
-        virtualenv $ANSIBLE_VENV
-        $ANSIBLE_VENV/bin/pip install --upgrade pip
+        determine_python_bin
+        virtualenv --python=${python_bin} $ANSIBLE_VENV
+        $ANSIBLE_VENV/bin/pip install --upgrade pip wheel setuptools
         $ANSIBLE_VENV/bin/pip install -r $WORK_DIR/requirements.txt
     fi
 }
@@ -108,7 +146,7 @@ function ansible_playbook_ses {
 # this wrapper will choose python3 over python2 when running a python script
 function run_python_script {
     set +x
-    python_bin=$(command -v python3 || command -v python)
+    determine_python_bin
     $python_bin "${@}"
 }
 
@@ -163,36 +201,98 @@ function prepare_infra {
     fi
 }
 
+function get_devel_project {
+    local devel_project="" cloud_ver
+    case "${1}" in
+        *GM* )
+            cloud_ver="${1#GM}"
+            cloud_ver="${cloud_ver%+*}"
+            devel_project="Devel:Cloud:${cloud_ver}"
+            ;;
+        devel* )
+            cloud_ver="${1#develcloud}"
+            devel_project="Devel:Cloud:${cloud_ver}"
+            ;;
+        staging* )
+            cloud_ver="${1#stagingcloud}"
+            devel_project="Devel:Cloud:${cloud_ver}:Staging"
+            ;;
+        cloud* )
+            cloud_ver="${1#cloud}"
+            cloud_ver="${cloud_ver%M*}"
+            devel_project="Devel:Cloud:${cloud_ver}"
+            ;;
+    esac
+
+    echo "${devel_project}"
+}
+
+# If targetting staging or devel as cloudsource then even if we don't
+# have any Gerrit patches to build we ensure that we deploy packages
+# built with the latest merged gerrit sources.
 function build_test_packages {
-    if is_defined gerrit_change_ids; then
-        if ! is_defined homeproject; then
-            echo "ERROR: homeproject must be defined - please check all variables on input.yml"
-            return 1
-        else
-            pushd $AUTOMATION_DIR/scripts/jenkins/cloud/gerrit
-            source $ANSIBLE_VENV/bin/activate
-            gerrit_change_ids=$(get_from_input gerrit_change_ids)
-            GERRIT_VERIFY=0 PYTHONWARNINGS="ignore:Unverified HTTPS request" \
-                run_python_script -u build_test_package.py --buildnumber local \
-                --homeproject $(get_from_input homeproject) -c ${gerrit_change_ids//,/ -c }
-            popd
-        fi
+    local gerrit_change_ids target_cloudsource build_number devel_project build_args
+
+    # Nothing to do if no change ids specified
+    gerrit_change_ids="${1:-$(get_from_input gerrit_change_ids)}"
+    [[ -n "${gerrit_change_ids}" ]] || return 0
+
+    if ! is_defined homeproject; then
+        echo "ERROR: homeproject must be defined - please check all variables on input.yml"
+        return 1
     fi
+
+    target_cloudsource="${2:-$(get_from_input cloudsource)}"
+    build_number="${3:-local}"
+
+    devel_project="$(get_devel_project "${target_cloudsource}")"
+
+    if [[ -z "${devel_project}" ]]; then
+        echo "ERROR: Unable to determine appropriate devel project from '${1}' to build packages against"
+        return 1
+    fi
+
+    build_args=(
+        --buildnumber ${build_number}
+        --develproject ${devel_project}
+        --homeproject $(get_from_input homeproject)
+        -c ${gerrit_change_ids//,/ -c }
+    )
+
+    pushd $AUTOMATION_DIR/scripts/jenkins/cloud/gerrit
+    source $ANSIBLE_VENV/bin/activate
+    GERRIT_VERIFY=0 PYTHONWARNINGS='ignore:Unverified HTTPS request' \
+        run_python_script -u build_test_package.py ${build_args[@]}
+    popd
+}
+
+function build_upgrade_test_packages {
+    local upgrade_changeids target_cloudsource
+
+    # Skip if not doing an upgrade
+    $(get_from_input upgrade_after_deploy) || return 0
+
+    upgrade_changeids="$(get_from_input upgrade_gerrit_change_ids)"
+    [[ -n "${upgrade_changeids}" ]] || return 0
+
+    target_cloudsource="$(get_from_input upgrade_cloudsource)"
+
+    build_test_packages "${upgrade_changeids}" "${target_cloudsource}" upgrade
 }
 
 function bootstrap_clm {
-    test_repo_url=""
+    local test_repo_url=""
     if is_defined gerrit_change_ids; then
         homeproject=$(get_from_input homeproject)
-        test_repo_url="http://download.suse.de/ibs/$(sed 's#\b:\b#&/#' <<< $homeproject):/ardana-ci-local/standard/$(get_from_input homeproject):ardana-ci-local.repo"
+        test_repo_url="http://download.suse.de/ibs/${homeproject//:/:\/}:/ardana-ci-local/standard/$(get_from_input homeproject):ardana-ci-local.repo"
     fi
-    extra_repos=$(sed -e "s/^,//" -e "s/,$//" <<< "$(get_from_input extra_repos),${test_repo_url}")
+    local extra_repos=$(sed -e "s/^,//" -e "s/,$//" <<< "$(get_from_input extra_repos),${test_repo_url}")
     ansible_playbook bootstrap-clm.yml -e extra_repos="${extra_repos}"
 }
 
 function bootstrap_crowbar {
-    test_repo_url=""
-    extra_repos=$(sed -e "s/^,//" -e "s/,$//" <<< "$(get_from_input extra_repos),${test_repo_url}")
+    local test_repo_url=""
+    local extra_repos=$(sed -e "s/^,//" -e "s/,$//" <<< "$(get_from_input extra_repos),${test_repo_url}")
     ansible_playbook bootstrap-crowbar.yml -e extra_repos="${extra_repos}"
 }
 
@@ -260,9 +360,17 @@ function update_cloud {
 }
 
 function upgrade_cloud {
-    if $(get_from_input deploy_cloud) && [[ -n $(get_from_input upgrade_cloudsource) ]]; then
+if $(get_from_input deploy_cloud) && $(get_from_input update_after_deploy) && [[ -n "$(get_from_input upgrade_cloudsource)" ]]; then
         if [ "$(get_cloud_product)" == "crowbar" ]; then
             ansible_playbook crowbar-upgrade.yml
+        elif $(get_from_input deploy_cloud); then
+            local test_repo_url=""
+            if is_defined upgrade_gerrit_change_ids; then
+                homeproject=$(get_from_input homeproject)
+                test_repo_url="http://download.suse.de/ibs/${homeproject//:/:\/}:/ardana-ci-upgrade/standard/$(get_from_input homeproject):ardana-ci-upgrade.repo"
+            fi
+            local extra_repos=$(sed -e "s/^,//" -e "s/,$//" <<< "$(get_from_input upgrade_extra_repos),${test_repo_url}")
+            ansible_playbook ardana-upgrade.yml -e upgrade_extra_repos="${extra_repos}"
         fi
     fi
 }

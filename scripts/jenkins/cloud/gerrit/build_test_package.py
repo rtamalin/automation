@@ -209,7 +209,7 @@ class OBSProject(GerritApiCaller):
         osc_version = int(sh.osc('--version').strip().split('.')[1])
         sh.osc('-A', 'https://api.suse.de', 'deleterequest',
                self.obs_test_project_name, '--accept-in-hours', 720,
-               '-m', 'Auto delete after 30 days.',
+               '-m', "'Auto delete after 30 days.'",
                '--all' if osc_version > 163 else '')
 
     @find_in_osc_file('obs_scm filename')

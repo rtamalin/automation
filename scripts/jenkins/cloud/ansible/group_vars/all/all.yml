@@ -30,6 +30,8 @@ cloud_admin_user:
 # The cloud release is encoded in the cloudsource value
 cloud_release_number: "{{ cloudsource | regex_search('\\d') }}"
 cloud_release: "cloud{{ cloud_release_number }}"
+upgrade_cloud_release_number: "{{ upgrade_cloudsource | regex_search('\\d') }}"
+upgrade_cloud_release: "cloud{{ upgrade_cloud_release_number }}"
 cloud_git_branch:
   cloud8: "stable/pike"
   cloud9: "master"
@@ -56,7 +58,6 @@ rc_notify_start: True
 
 suse_release: "suse-{{ ansible_distribution_version }}"
 local_repos_web_dir_prefix: "{{ (cloud_product == 'crowbar') | ternary('tftpboot', 'www') }}"
-local_repos_base_dir: "/srv/{{ local_repos_web_dir_prefix }}/{{ suse_release }}/{{ ansible_architecture }}/repos"
 
 sles_cloud_version:
   "12.2": 7

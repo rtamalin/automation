@@ -31,3 +31,5 @@
     repo: "iso:///?iso={{ media[cloud_release].iso }}&url=dir:{{ media[cloud_release].dest }}"
     auto_import_keys: yes
     runrefresh: yes
+    enabled: "{{ zypper_repo_enabled }}"
+    state: "{{ zypper_repo_state }}"
