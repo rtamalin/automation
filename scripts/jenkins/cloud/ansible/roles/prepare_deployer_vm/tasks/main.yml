@@ -20,6 +20,8 @@
     command: list_vms
   register: libvirt
 
+- debug: var=libvirt
+
 - name: Ensure all VMs are powered off
   virt:
     state: destroyed
@@ -30,6 +32,16 @@
   file:
     dest: "{{ libvirt_vm_images_dir }}/{{ vm_name }}.qcow2"
     state: absent
+
+- shell: ls -l {{ libvirt_vm_images_dir }}
+  register: lv_vm_images_dir_result
+
+- debug: var=lv_vm_images_dir_result
+
+- shell: ls -l {{ libvirt_fresh_images_dir }}
+  register: lv_fresh_images_dir_result
+
+- debug: var=lv_fresh_images_dir_result
 
 - name: Copy fresh VM disk
   copy:
