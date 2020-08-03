@@ -36,9 +36,16 @@
 
 - include_tasks: update_status.yml
 
-- name: Clear pending CLM update status
+- name: Clear pending CLM update status (old style)
   command: |
     ansible-playbook ardana-update-status.yml -l OPS-LM--first-member
       -e "update_status_var=clm-update update_status_reset=true"
+  args:
+    chdir: "{{ ardana_scratch_path }}"
+
+- name: Clear pending CLM update status (new style)
+  command: |
+    ansible-playbook ardana-update-status.yml -l OPS-LM--first-member
+      -e pending_clm_update=off
   args:
     chdir: "{{ ardana_scratch_path }}"
